@@ -1,0 +1,9 @@
+[server]
+port = 8502
+headless = true
+
+[client]
+toolbarMode = "minimal"
+
+[theme]
+base = "dark"
