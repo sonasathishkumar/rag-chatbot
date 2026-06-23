@@ -302,26 +302,6 @@ model = "all-MiniLM-L6-v2"  # Embedding model
 
 ---
 
-## 🗺️ Roadmap
-
-- [x] PDF upload and FAISS indexing
-- [x] Semantic search with Sentence Transformers
-- [x] Chat interface with conversation history
-- [x] Source citations for every answer
-- [x] Analytics dashboard with charts
-- [x] Document library management
-- [x] Docker containerization
-- [x] Streamlit Cloud deployment
-- [ ] Multi-language support (Tamil, Hindi, English)
-- [ ] Web URL input (scrape and index websites)
-- [ ] Voice input with speech-to-text
-- [ ] Export chat history as PDF
-- [ ] FastAPI REST endpoint
-- [ ] Support for .docx and .txt files
-- [ ] Persistent storage across sessions
-
----
-
 ## 🤝 Contributing
 
 Contributions are welcome! Here's how:
