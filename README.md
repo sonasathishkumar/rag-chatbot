@@ -18,7 +18,7 @@
 
 <br/>
 
-[🌐 Try Live Demo](https://rag-chatbot-document.streamlit.app) &nbsp;·&nbsp; [🐙 View Code](https://github.com/sonasathishkumar/rag-chatbot) &nbsp;·&nbsp; [💼 LinkedIn](https://linkedin.com/in/sonasathishkumar)
+[🌐 Try Live Demo](https://rag-chatbot-document.streamlit.app) &nbsp;·&nbsp; [🐙 View Code](https://github.com/sonasathishkumar/rag-chatbot) &nbsp;·&nbsp; [💼 LinkedIn](https://www.linkedin.com/in/sona-sathishkumar/)
 
 <br/>
 
