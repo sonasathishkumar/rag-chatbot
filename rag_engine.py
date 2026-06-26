@@ -2,9 +2,9 @@ import os
 import faiss
 import numpy as np
 import pdfplumber
+import streamlit as st
 from sentence_transformers import SentenceTransformer
-from transformers import T5ForConditionalGeneration, AutoTokenizer
-import torch
+from groq import Groq
 
 class RAGEngine:
     def __init__(self):
@@ -16,24 +16,17 @@ class RAGEngine:
         self.chat_history = []
         self.loaded_files = []
 
-        # Lazy-loaded — T5 only initialises on the FIRST ask() call
-        self._tokenizer = None
-        self._model = None
+        # Groq client — key read from Streamlit secrets
+        api_key = st.secrets.get("GROQ_API_KEY", os.getenv("GROQ_API_KEY", ""))
+        self._groq = Groq(api_key=api_key) if api_key else None
 
     # ──────────────────────────────────────────────────────────────────────────
-    # Lazy model loader
+    # Model readiness
     # ──────────────────────────────────────────────────────────────────────────
-    def _ensure_model(self):
-        """Download & load Flan-T5 on first use (keeps startup instant)."""
-        if self._model is None:
-            model_name = "google/flan-t5-base"
-            self._tokenizer = AutoTokenizer.from_pretrained(model_name)
-            self._model = T5ForConditionalGeneration.from_pretrained(model_name)
-            self._model.eval()
-
     @property
     def model_ready(self) -> bool:
-        return self._model is not None
+        """True when the Groq client is configured with an API key."""
+        return self._groq is not None
 
     # ──────────────────────────────────────────────────────────────────────────
     # Document ingestion
@@ -75,25 +68,23 @@ class RAGEngine:
         return len(chunks)
 
     # ──────────────────────────────────────────────────────────────────────────
-    # Generation
+    # Generation via Groq (llama3-8b-8192)
     # ──────────────────────────────────────────────────────────────────────────
-    def _generate(self, prompt: str, max_new_tokens: int = 300) -> str:
-        """Run Flan-T5 inference directly (no pipeline registry needed)."""
-        self._ensure_model()
-        inputs = self._tokenizer(
-            prompt,
-            return_tensors="pt",
-            max_length=512,
-            truncation=True,
+    def _generate(self, system_prompt: str, user_prompt: str) -> str:
+        """Call the Groq API and return the assistant reply."""
+        if self._groq is None:
+            return "⚠️ GROQ_API_KEY is not configured. Add it to Streamlit secrets."
+
+        response = self._groq.chat.completions.create(
+            model="llama3-8b-8192",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user",   "content": user_prompt},
+            ],
+            temperature=0.2,
+            max_tokens=512,
         )
-        with torch.no_grad():
-            outputs = self._model.generate(
-                **inputs,
-                max_new_tokens=max_new_tokens,
-                num_beams=4,
-                early_stopping=True,
-            )
-        return self._tokenizer.decode(outputs[0], skip_special_tokens=True).strip()
+        return response.choices[0].message.content.strip()
 
     # ──────────────────────────────────────────────────────────────────────────
     # Question answering
@@ -110,7 +101,7 @@ class RAGEngine:
         return results
 
     def ask(self, query):
-        """Retrieve relevant context then generate an answer locally."""
+        """Retrieve relevant context then generate an answer via Groq."""
         if self.index is None:
             return {
                 "answer": "📄 Please upload a document first from the sidebar.",
@@ -124,10 +115,10 @@ class RAGEngine:
             sources = [chunk for chunk, _ in results]
             scores  = [max(0.0, 1.0 - dist / 2.0) for _, dist in results]
 
-            # 2. Build context (cap to keep within T5's 512-token limit)
-            context = "\n\n".join(sources[:3])[:1400]
+            # 2. Build context
+            context = "\n\n".join(sources[:3])[:3000]
 
-            # 3. Inject recent conversation history (last 2 turns)
+            # 3. Recent conversation history (last 2 turns)
             history_text = ""
             if self.chat_history:
                 recent = self.chat_history[-2:]
@@ -136,17 +127,20 @@ class RAGEngine:
                     history_text += f"Q: {q}\nA: {a}\n"
                 history_text += "\n"
 
-            # 4. Compose instruction-style prompt for Flan-T5
-            prompt = (
-                "Answer the question accurately and concisely based only on the context below.\n\n"
+            # 4. Prompts
+            system_prompt = (
+                "You are a helpful assistant that answers questions strictly based on "
+                "the provided document context. If the answer is not in the context, "
+                "say so clearly rather than guessing."
+            )
+            user_prompt = (
                 f"{history_text}"
                 f"Context:\n{context}\n\n"
-                f"Question: {query}\n\n"
-                "Answer:"
+                f"Question: {query}"
             )
 
-            # 5. Generate — model loads here on first call
-            answer = self._generate(prompt)
+            # 5. Generate via Groq
+            answer = self._generate(system_prompt, user_prompt)
 
             if not answer:
                 answer = (
@@ -171,13 +165,9 @@ class RAGEngine:
         self.chat_history = []
 
     def summarize_document(self, text):
-        """Generate a concise summary of the document using the first part of the text."""
-        self._ensure_model()
-        # Summarize the first 1500 chars to fit within T5's limit
-        content_to_summarize = text[:1500]
-        prompt = (
-            "Summarize the following document concisely:\n\n"
-            f"{content_to_summarize}\n\n"
-            "Summary:"
+        """Generate a concise summary of the document using Groq."""
+        system_prompt = "You are a document summarizer. Provide a clear, concise summary."
+        user_prompt = (
+            f"Summarize the following document concisely:\n\n{text[:3000]}"
         )
-        return self._generate(prompt, max_new_tokens=150)
+        return self._generate(system_prompt, user_prompt)

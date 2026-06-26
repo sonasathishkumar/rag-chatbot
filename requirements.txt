@@ -1,5 +1,3 @@
---extra-index-url https://download.pytorch.org/whl/cpu
-
 # Core app
 streamlit>=1.28.0
 python-dotenv>=1.0.0
@@ -18,12 +16,9 @@ plotly>=5.17.0
 # Auth
 bcrypt==4.0.1
 
-# ML / NLP  (CPU-only builds via PyTorch index)
-torch==2.3.1
-torchvision==0.18.1
-transformers==4.41.2
-sentence-transformers==3.0.1
-accelerate==0.30.1
+# LLM — Groq API (replaces local Flan-T5)
+groq>=0.9.0
 
-# Vector search
+# Embeddings + vector search (local, CPU-only)
+sentence-transformers==3.0.1
 faiss-cpu>=1.7.4
