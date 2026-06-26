@@ -4,7 +4,11 @@ import numpy as np
 import pdfplumber
 import streamlit as st
 from sentence_transformers import SentenceTransformer
-from groq import Groq
+from groq import Groq, BadRequestError
+
+# Maximum characters sent in a single Groq prompt (well under llama3-8b-8192's
+# ~8 000-token context window; 1 token ≈ 4 chars, so 12 000 chars ≈ 3 000 tokens).
+MAX_PROMPT_CHARS = 12_000
 
 class RAGEngine:
     def __init__(self):
@@ -71,20 +75,49 @@ class RAGEngine:
     # Generation via Groq (llama3-8b-8192)
     # ──────────────────────────────────────────────────────────────────────────
     def _generate(self, system_prompt: str, user_prompt: str) -> str:
-        """Call the Groq API and return the assistant reply."""
+        """Call the Groq API and return the assistant reply.
+
+        Guards:
+        - Returns early when the API key is missing.
+        - Replaces None / empty strings with a placeholder so the API never
+          receives blank content (causes BadRequestError).
+        - Truncates each prompt part to MAX_PROMPT_CHARS so the combined
+          payload stays within llama3-8b-8192's context window.
+        - Catches groq.BadRequestError and other exceptions gracefully.
+        """
         if self._groq is None:
             return "⚠️ GROQ_API_KEY is not configured. Add it to Streamlit secrets."
 
-        response = self._groq.chat.completions.create(
-            model="llama3-8b-8192",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user",   "content": user_prompt},
-            ],
-            temperature=0.2,
-            max_tokens=512,
-        )
-        return response.choices[0].message.content.strip()
+        # --- Guard: no None / empty content ---
+        system_prompt = (system_prompt or "").strip() or "You are a helpful assistant."
+        user_prompt   = (user_prompt   or "").strip()
+        if not user_prompt:
+            return "⚠️ No question or context was provided. Please try again."
+
+        # --- Guard: truncate to stay within token limit ---
+        system_prompt = system_prompt[:MAX_PROMPT_CHARS]
+        user_prompt   = user_prompt[:MAX_PROMPT_CHARS]
+
+        try:
+            response = self._groq.chat.completions.create(
+                model="llama3-8b-8192",          # verified model name
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user",   "content": user_prompt},
+                ],
+                temperature=0.2,
+                max_tokens=512,
+            )
+            return response.choices[0].message.content.strip()
+
+        except BadRequestError as e:
+            # 400 errors: token overflow, banned content, bad payload, etc.
+            return (
+                f"⚠️ Groq rejected the request (BadRequestError): {e.message}\n\n"
+                "Try asking a shorter or differently-worded question."
+            )
+        except Exception as e:
+            return f"❌ Unexpected error calling Groq API: {str(e)}"
 
     # ──────────────────────────────────────────────────────────────────────────
     # Question answering
@@ -166,8 +199,10 @@ class RAGEngine:
 
     def summarize_document(self, text):
         """Generate a concise summary of the document using Groq."""
+        if not text or not text.strip():
+            return "No text could be extracted from this document."
         system_prompt = "You are a document summarizer. Provide a clear, concise summary."
-        user_prompt = (
-            f"Summarize the following document concisely:\n\n{text[:3000]}"
-        )
+        # Use the same MAX_PROMPT_CHARS ceiling; leave room for the preamble.
+        snippet = text.strip()[:MAX_PROMPT_CHARS - 100]
+        user_prompt = f"Summarize the following document concisely:\n\n{snippet}"
         return self._generate(system_prompt, user_prompt)
