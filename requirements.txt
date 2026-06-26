@@ -21,8 +21,9 @@ bcrypt==4.0.1
 # ML / NLP  (CPU-only builds via PyTorch index)
 torch==2.3.1
 torchvision==0.18.1
-transformers>=4.35.0
-sentence-transformers>=2.2.2
+transformers==4.41.2
+sentence-transformers==3.0.1
+accelerate==0.30.1
 
 # Vector search
 faiss-cpu>=1.7.4
