@@ -17,8 +17,8 @@ plotly>=5.17.0
 # Auth
 bcrypt==4.0.1
 
-# ML / NLP
-torch==2.3.1
+# ML / NLP  (CPU-only build; torchvision excluded — not imported in any .py file)
+torch==2.9.0
 transformers>=4.35.0
 sentence-transformers>=2.2.2
 
