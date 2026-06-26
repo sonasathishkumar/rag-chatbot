@@ -8,6 +8,7 @@ python-dotenv>=1.0.0
 pdfplumber>=0.9.0
 PyPDF2>=3.0.0
 reportlab>=4.0.0
+fpdf2>=2.7.0
 
 # Data / viz
 pandas>=2.0.0
@@ -17,8 +18,9 @@ plotly>=5.17.0
 # Auth
 bcrypt==4.0.1
 
-# ML / NLP  (CPU-only build; torchvision excluded — not imported in any .py file)
-torch==2.9.0
+# ML / NLP  (CPU-only builds via PyTorch index)
+torch==2.3.1
+torchvision==0.18.1
 transformers>=4.35.0
 sentence-transformers>=2.2.2
 
