@@ -8,10 +8,10 @@ from sentence_transformers import SentenceTransformer
 from groq import Groq, BadRequestError
 
 # Maximum characters sent in a single Groq prompt.
-# llama-3.3-70b-versatile has a 128 k-token context window;
+# Llama 4 Scout has a large context window;
 # 12 000 chars ≈ 3 000 tokens — well within limit.
 MAX_PROMPT_CHARS = 12_000
-MODEL = "llama-3.3-70b-versatile"  # latest working Groq model, June 2026
+MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 
 class RAGEngine:
     def __init__(self):
@@ -75,7 +75,7 @@ class RAGEngine:
         return len(chunks)
 
     # ──────────────────────────────────────────────────────────────────────────
-    # Generation via Groq (llama3-8b-8192)
+    # Generation via Groq
     # ──────────────────────────────────────────────────────────────────────────
     def _generate(self, system_prompt: str, user_prompt: str) -> str:
         """Call the Groq API and return the assistant reply."""
