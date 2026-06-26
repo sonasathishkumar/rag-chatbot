@@ -1,16 +1,17 @@
 import os
+import faiss
+import numpy as np
 import pdfplumber
-from langchain_community.vectorstores import FAISS
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+from sentence_transformers import SentenceTransformer
 from transformers import T5ForConditionalGeneration, AutoTokenizer
 import torch
 
 class RAGEngine:
     def __init__(self):
         # Embeddings model (fast, ~25 MB, already cached after first run)
-        self.embeddings = HuggingFaceEmbeddings(model_name='paraphrase-MiniLM-L3-v2')
-        self.vector_store = None
+        self.embedder = SentenceTransformer('paraphrase-MiniLM-L3-v2')
+        self.index = None
+        self.embeddings = None
         self.chunks = []
         self.chat_history = []
         self.loaded_files = []
@@ -48,23 +49,29 @@ class RAGEngine:
         return full_text
 
     def chunk_text(self, text, chunk_size=1000, overlap=150):
-        """Split text with LangChain's RecursiveCharacterTextSplitter."""
-        splitter = RecursiveCharacterTextSplitter(
-            chunk_size=chunk_size,
-            chunk_overlap=overlap,
-            separators=["\n\n", "\n", " ", ""]
-        )
-        return splitter.split_text(text)
+        """Split text into overlapping chunks using a simple sliding-window approach."""
+        chunks = []
+        start = 0
+        text_len = len(text)
+        while start < text_len:
+            end = min(start + chunk_size, text_len)
+            chunks.append(text[start:end])
+            if end == text_len:
+                break
+            start += chunk_size - overlap
+        return chunks
 
     def build_index(self, chunks):
-        """Build / update the FAISS vector store."""
+        """Build / update the FAISS index directly."""
         if not chunks:
             return 0
-        self.chunks.extend(chunks)
-        if self.vector_store is None:
-            self.vector_store = FAISS.from_texts(chunks, self.embeddings)
-        else:
-            self.vector_store.add_texts(chunks)
+        self.chunks = chunks
+        vecs = self.embedder.encode(chunks, show_progress_bar=False)
+        vecs = np.array(vecs).astype('float32')
+        dimension = vecs.shape[1]
+        self.index = faiss.IndexFlatL2(dimension)
+        self.index.add(vecs)
+        self.embeddings = vecs
         return len(chunks)
 
     # ──────────────────────────────────────────────────────────────────────────
@@ -91,9 +98,20 @@ class RAGEngine:
     # ──────────────────────────────────────────────────────────────────────────
     # Question answering
     # ──────────────────────────────────────────────────────────────────────────
+    def retrieve(self, query, top_k=3):
+        """Return (chunk_text, distance) pairs for the top_k nearest chunks."""
+        query_vec = self.embedder.encode([query])
+        query_vec = np.array(query_vec).astype('float32')
+        distances, indices = self.index.search(query_vec, top_k)
+        results = []
+        for i, idx in enumerate(indices[0]):
+            if idx < len(self.chunks):
+                results.append((self.chunks[idx], float(distances[0][i])))
+        return results
+
     def ask(self, query):
         """Retrieve relevant context then generate an answer locally."""
-        if not self.vector_store:
+        if self.index is None:
             return {
                 "answer": "📄 Please upload a document first from the sidebar.",
                 "sources": [],
@@ -102,9 +120,9 @@ class RAGEngine:
 
         try:
             # 1. Semantic retrieval
-            docs_and_scores = self.vector_store.similarity_search_with_score(query, k=4)
-            sources = [doc.page_content for doc, _ in docs_and_scores]
-            scores  = [max(0.0, 1.0 - float(s) / 2.0) for _, s in docs_and_scores]
+            results = self.retrieve(query, top_k=4)
+            sources = [chunk for chunk, _ in results]
+            scores  = [max(0.0, 1.0 - dist / 2.0) for _, dist in results]
 
             # 2. Build context (cap to keep within T5's 512-token limit)
             context = "\n\n".join(sources[:3])[:1400]
