@@ -47,7 +47,7 @@ def generate_chat_pdf(messages):
             
         pdf.ln(6)
         
-    return pdf.output(dest='S').encode('latin-1')
+    return bytes(pdf.output())
 
 # ─────────────────────────────────────────────────────────────────────────────
 # LOGIN PAGE
