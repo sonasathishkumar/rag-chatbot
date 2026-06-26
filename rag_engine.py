@@ -7,10 +7,11 @@ import streamlit as st
 from sentence_transformers import SentenceTransformer
 from groq import Groq, BadRequestError
 
-# Maximum characters sent in a single Groq prompt (well under llama3-8b-8192's
-# ~8 000-token context window; 1 token ≈ 4 chars, so 12 000 chars ≈ 3 000 tokens).
+# Maximum characters sent in a single Groq prompt.
+# llama-3.3-70b-versatile has a 128 k-token context window;
+# 12 000 chars ≈ 3 000 tokens — well within limit.
 MAX_PROMPT_CHARS = 12_000
-MODEL = "llama-3.1-8b-instant"   # llama3-8b-8192 was decommissioned by Groq
+MODEL = "llama-3.3-70b-versatile"  # latest working Groq model, June 2026
 
 class RAGEngine:
     def __init__(self):
