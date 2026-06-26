@@ -16,7 +16,7 @@ plotly>=5.17.0
 # Auth
 bcrypt==4.0.1
 
-# LLM — Groq API (replaces local Flan-T5)
+# LLM — Groq API client (https://pypi.org/project/groq/)
 groq>=0.9.0
 
 # Embeddings + vector search (local, CPU-only)
