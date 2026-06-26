@@ -11,7 +11,12 @@ from groq import Groq, BadRequestError
 # Llama 4 Scout has a large context window;
 # 12 000 chars ≈ 3 000 tokens — well within limit.
 MAX_PROMPT_CHARS = 12_000
-MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
+MODEL = st.secrets.get("GROQ_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct")
+FALLBACK_MODELS = [
+    "meta-llama/llama-4-scout-17b-16e-instruct",
+    "openai/gpt-oss-20b",
+    "qwen/qwen3.6-27b"
+]
 
 class RAGEngine:
     def __init__(self):
@@ -97,40 +102,62 @@ class RAGEngine:
         system_prompt = system_prompt[:MAX_PROMPT_CHARS]
         user_prompt   = user_prompt[:MAX_PROMPT_CHARS]
 
-        print(f"Model            : {MODEL}")
+        models_to_try = []
+        if MODEL not in FALLBACK_MODELS:
+            models_to_try.append(MODEL)
+        models_to_try.extend(FALLBACK_MODELS)
+
+        print(f"Models to try    : {models_to_try}")
         print(f"max_tokens       : 512")
         print(f"System prompt len: {len(system_prompt)} chars")
         print(f"User prompt len  : {len(user_prompt)} chars")
         print(f"User prompt (200): {user_prompt[:200]!r}")
         print("-" * 50)
 
-        try:
-            response = self._groq.chat.completions.create(
-                model=MODEL,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user",   "content": user_prompt},
-                ],
-                temperature=0.2,
-                max_tokens=512,
-            )
-            result = response.choices[0].message.content.strip()
-            print(f"Response len     : {len(result)} chars")
-            print("=== GROQ CALL SUCCESS ===")
-            print("=" * 50)
-            return result
+        last_error = None
+        for current_model in models_to_try:
+            print(f"Trying model: {current_model}")
+            try:
+                response = self._groq.chat.completions.create(
+                    model=current_model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user",   "content": user_prompt},
+                    ],
+                    temperature=0.2,
+                    max_tokens=512,
+                )
+                result = response.choices[0].message.content.strip()
+                print(f"Response len     : {len(result)} chars")
+                print("=== GROQ CALL SUCCESS ===")
+                print("=" * 50)
+                return result
 
-        except Exception as e:
-            print("=" * 50)
-            print(f"=== GROQ CALL FAILED ===")
-            print(f"Exception type   : {type(e).__name__}")
-            print(f"Exception message: {e}")
-            print(f"Status code      : {getattr(e, 'status_code', 'N/A')}")
-            print(f"Groq message     : {getattr(e, 'message', 'N/A')}")
-            print("--- Full traceback below ---")
-            traceback.print_exc()
-            print("=" * 50)
-            raise  # re-raise so Streamlit / caller also sees the error
+            except Exception as e:
+                # Catch decommissioned/not found errors and retry
+                error_msg = str(e).lower()
+                is_model_error = "model_decommissioned" in error_msg or "not found" in error_msg or "does not exist" in error_msg
+                
+                print(f"=== GROQ CALL FAILED for {current_model} ===")
+                print(f"Exception type   : {type(e).__name__}")
+                print(f"Exception message: {e}")
+                
+                if is_model_error:
+                    print("--> Model appears decommissioned or invalid. Trying next fallback...")
+                    last_error = e
+                    continue
+                else:
+                    print(f"Status code      : {getattr(e, 'status_code', 'N/A')}")
+                    print(f"Groq message     : {getattr(e, 'message', 'N/A')}")
+                    print("--- Full traceback below ---")
+                    traceback.print_exc()
+                    print("=" * 50)
+                    raise e
+                    
+        # If we exhausted all models
+        print("=== GROQ CALL FATAL: All fallback models failed ===")
+        print("=" * 50)
+        raise last_error or Exception("All Groq models failed.")
 
     # ──────────────────────────────────────────────────────────────────────────
     # Question answering
