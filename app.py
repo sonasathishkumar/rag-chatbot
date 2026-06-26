@@ -474,7 +474,10 @@ with st.sidebar:
                 for pdf in new_files:
                     text   = st.session_state.rag.load_pdf(pdf)
                     chunks = st.session_state.rag.chunk_text(text)
-                    summary = st.session_state.rag.summarize_document(text)
+                    try:
+                        summary = st.session_state.rag.summarize_document(text)
+                    except Exception:
+                        summary = "(Auto-summary unavailable — document indexed successfully.)"
                     st.session_state.doc_stats[pdf.name] = len(chunks)
                     st.session_state.doc_summaries[pdf.name] = summary
                     st.session_state.rag.build_index(chunks)
@@ -489,6 +492,7 @@ with st.sidebar:
             st.success(f"✅ {len(new_files)} doc(s) indexed")
             time.sleep(1.5)
             st.rerun()
+
 
     # Indexed docs list
     st.markdown("""<div style="color:#64748b; font-size:11px; font-weight:600;

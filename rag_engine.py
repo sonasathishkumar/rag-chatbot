@@ -1,4 +1,5 @@
 import os
+import traceback
 import faiss
 import numpy as np
 import pdfplumber
@@ -9,6 +10,7 @@ from groq import Groq, BadRequestError
 # Maximum characters sent in a single Groq prompt (well under llama3-8b-8192's
 # ~8 000-token context window; 1 token ≈ 4 chars, so 12 000 chars ≈ 3 000 tokens).
 MAX_PROMPT_CHARS = 12_000
+MODEL = "llama3-8b-8192"
 
 class RAGEngine:
     def __init__(self):
@@ -75,32 +77,35 @@ class RAGEngine:
     # Generation via Groq (llama3-8b-8192)
     # ──────────────────────────────────────────────────────────────────────────
     def _generate(self, system_prompt: str, user_prompt: str) -> str:
-        """Call the Groq API and return the assistant reply.
+        """Call the Groq API and return the assistant reply."""
+        print("=" * 50)
+        print("=== GROQ CALL START ===")
 
-        Guards:
-        - Returns early when the API key is missing.
-        - Replaces None / empty strings with a placeholder so the API never
-          receives blank content (causes BadRequestError).
-        - Truncates each prompt part to MAX_PROMPT_CHARS so the combined
-          payload stays within llama3-8b-8192's context window.
-        - Catches groq.BadRequestError and other exceptions gracefully.
-        """
         if self._groq is None:
+            print("=== GROQ CALL ABORTED: no API key ===")
             return "⚠️ GROQ_API_KEY is not configured. Add it to Streamlit secrets."
 
         # --- Guard: no None / empty content ---
         system_prompt = (system_prompt or "").strip() or "You are a helpful assistant."
         user_prompt   = (user_prompt   or "").strip()
         if not user_prompt:
+            print("=== GROQ CALL ABORTED: user_prompt is empty ===")
             return "⚠️ No question or context was provided. Please try again."
 
         # --- Guard: truncate to stay within token limit ---
         system_prompt = system_prompt[:MAX_PROMPT_CHARS]
         user_prompt   = user_prompt[:MAX_PROMPT_CHARS]
 
+        print(f"Model            : {MODEL}")
+        print(f"max_tokens       : 512")
+        print(f"System prompt len: {len(system_prompt)} chars")
+        print(f"User prompt len  : {len(user_prompt)} chars")
+        print(f"User prompt (200): {user_prompt[:200]!r}")
+        print("-" * 50)
+
         try:
             response = self._groq.chat.completions.create(
-                model="llama3-8b-8192",          # verified model name
+                model=MODEL,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user",   "content": user_prompt},
@@ -108,16 +113,23 @@ class RAGEngine:
                 temperature=0.2,
                 max_tokens=512,
             )
-            return response.choices[0].message.content.strip()
+            result = response.choices[0].message.content.strip()
+            print(f"Response len     : {len(result)} chars")
+            print("=== GROQ CALL SUCCESS ===")
+            print("=" * 50)
+            return result
 
-        except BadRequestError as e:
-            # 400 errors: token overflow, banned content, bad payload, etc.
-            return (
-                f"⚠️ Groq rejected the request (BadRequestError): {e.message}\n\n"
-                "Try asking a shorter or differently-worded question."
-            )
         except Exception as e:
-            return f"❌ Unexpected error calling Groq API: {str(e)}"
+            print("=" * 50)
+            print(f"=== GROQ CALL FAILED ===")
+            print(f"Exception type   : {type(e).__name__}")
+            print(f"Exception message: {e}")
+            print(f"Status code      : {getattr(e, 'status_code', 'N/A')}")
+            print(f"Groq message     : {getattr(e, 'message', 'N/A')}")
+            print("--- Full traceback below ---")
+            traceback.print_exc()
+            print("=" * 50)
+            raise  # re-raise so Streamlit / caller also sees the error
 
     # ──────────────────────────────────────────────────────────────────────────
     # Question answering
@@ -198,11 +210,34 @@ class RAGEngine:
         self.chat_history = []
 
     def summarize_document(self, text):
-        """Generate a concise summary of the document using Groq."""
+        """Generate a concise summary of the document using Groq.
+
+        Sanitises the raw PDF text before sending to the API:
+        - Strips null bytes and ASCII control characters (common in PDFs)
+          which cause Groq to return a 400 BadRequestError.
+        - Truncates conservatively to 3 000 chars (≈ 750 tokens) to stay
+          well within the model's context window.
+        Returns a plain-text fallback string on any error so the caller
+        (document upload) never crashes.
+        """
         if not text or not text.strip():
             return "No text could be extracted from this document."
+
+        # --- Sanitise: remove null bytes + ASCII control chars (except \n \t) ---
+        clean = "".join(
+            ch for ch in text
+            if ch in ("\n", "\t") or (ord(ch) >= 32 and ord(ch) != 127)
+        ).strip()
+
+        if not clean:
+            return "Document contained only non-printable characters."
+
         system_prompt = "You are a document summarizer. Provide a clear, concise summary."
-        # Use the same MAX_PROMPT_CHARS ceiling; leave room for the preamble.
-        snippet = text.strip()[:MAX_PROMPT_CHARS - 100]
+        snippet    = clean[:3_000]          # ~750 tokens — very safe ceiling
         user_prompt = f"Summarize the following document concisely:\n\n{snippet}"
-        return self._generate(system_prompt, user_prompt)
+
+        try:
+            return self._generate(system_prompt, user_prompt)
+        except Exception as e:
+            print(f"summarize_document failed: {type(e).__name__}: {e}")
+            return "(Auto-summary unavailable — document indexed successfully.)"
