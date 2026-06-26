@@ -10,7 +10,7 @@ from groq import Groq, BadRequestError
 # Maximum characters sent in a single Groq prompt (well under llama3-8b-8192's
 # ~8 000-token context window; 1 token ≈ 4 chars, so 12 000 chars ≈ 3 000 tokens).
 MAX_PROMPT_CHARS = 12_000
-MODEL = "llama3-8b-8192"
+MODEL = "llama-3.1-8b-instant"   # llama3-8b-8192 was decommissioned by Groq
 
 class RAGEngine:
     def __init__(self):
